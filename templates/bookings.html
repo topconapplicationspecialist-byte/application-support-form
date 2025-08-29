@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Bookings List</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-100 min-h-screen p-6">
+    <div class="bg-white shadow-lg rounded-2xl p-6">
+      <h2 class="text-2xl font-bold text-gray-700 mb-6 text-center">
+        📋 All Bookings
+      </h2>
+
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="text-left px-3 py-2 border-b">No.</th>
+              <th class="text-left px-3 py-2 border-b">Customer</th>
+              <th class="text-left px-3 py-2 border-b">Country</th>
+              <th class="text-left px-3 py-2 border-b">Product</th>
+              <th class="text-left px-3 py-2 border-b">Purpose</th>
+              <th class="text-left px-3 py-2 border-b">Date</th>
+              <th class="text-left px-3 py-2 border-b">User</th>
+              <th class="text-left px-3 py-2 border-b">Competitor</th>
+              <th class="text-left px-3 py-2 border-b">Submitted By</th>
+              <th class="text-left px-3 py-2 border-b">Submitted On</th>
+              <th class="text-left px-3 py-2 border-b">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in bookings %}
+            <tr class="hover:bg-gray-50">
+              <td class="px-3 py-2 border-b">{{ loop.index }}</td>
+              <td class="px-3 py-2 border-b">{{ row.customer_name }}</td>
+              <td class="px-3 py-2 border-b">{{ row.country }}</td>
+              <td class="px-3 py-2 border-b">{{ row.product_name }}</td>
+              <td class="px-3 py-2 border-b">{{ row.purpose }}</td>
+              <td class="px-3 py-2 border-b">{{ row.date_of_event }}</td>
+              <td class="px-3 py-2 border-b">{{ row.user }}</td>
+              <td class="px-3 py-2 border-b">{{ row.competitor_name }}</td>
+              <td class="px-3 py-2 border-b">{{ row.submitted_by }}</td>
+              <td class="px-3 py-2 border-b">{{ row.submitted_on }}</td>
+              <td class="px-3 py-2 border-b">
+                {% if role == 'admin' %}
+                <a
+                  href="{{ url_for('edit_booking', booking_id=row.id) }}"
+                  class="text-sky-600 hover:underline mr-2"
+                  >✏️ Edit</a
+                >
+                <form
+                  method="POST"
+                  action="{{ url_for('delete_booking', booking_id=row.id) }}"
+                  style="display: inline"
+                >
+                  <button
+                    type="submit"
+                    onclick="return confirm('Delete this booking?');"
+                    class="text-red-600 hover:underline"
+                  >
+                    🗑 Delete
+                  </button>
+                </form>
+                {% else %}
+                <span class="text-gray-400 italic">No actions</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td class="px-3 py-4" colspan="11">No bookings yet.</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-6 flex justify-between items-center">
+        <a
+          href="{{ url_for('dashboard') }}"
+          class="text-blue-500 hover:underline"
+          >⬅ Back to Dashboard</a
+        >
+
+        <div class="flex space-x-3">
+          <a
+            href="{{ url_for('booking') }}"
+            class="bg-sky-600 text-white px-4 py-2 rounded-lg hover:bg-sky-700"
+            >➕ New Booking</a
+          >
+
+          {% if role == 'admin' %}
+          <form
+            method="POST"
+            action="{{ url_for('_clear_all_bookings') }}"
+            onsubmit="return confirm('⚠️ Are you sure you want to CLEAR ALL BOOKINGS? This cannot be undone!');"
+          >
+            <button
+              type="submit"
+              class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg"
+            >
+              🗑 Clear All
+            </button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

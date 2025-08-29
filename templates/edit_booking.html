@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Edit Booking</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+  <div class="bg-white shadow-lg rounded-2xl p-8 w-full max-w-lg">
+    <h2 class="text-2xl font-bold text-gray-700 mb-6 text-center">Edit Booking #{{ booking.id }}</h2>
+
+    <form method="POST" class="space-y-4">
+      <input type="text" name="customer_name" value="{{ booking.customer_name }}" required
+             class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400">
+
+      <select name="country" required class="w-full px-4 py-2 border rounded-lg">
+        <option value="Malaysia" {% if booking.country == 'Malaysia' %}selected{% endif %}>Malaysia</option>
+        <option value="Singapore" {% if booking.country == 'Singapore' %}selected{% endif %}>Singapore</option>
+      </select>
+
+      <input type="text" name="product_name" value="{{ booking.product_name }}" required
+             class="w-full px-4 py-2 border rounded-lg">
+
+      <input type="text" name="requested_by" value="{{ booking.requested_by }}" required
+             class="w-full px-4 py-2 border rounded-lg">
+
+      <select name="purpose" required class="w-full px-4 py-2 border rounded-lg">
+        <option value="Demo" {% if booking.purpose == 'Demo' %}selected{% endif %}>Demo</option>
+        <option value="Training" {% if booking.purpose == 'Training' %}selected{% endif %}>Training</option>
+        <option value="Workshop" {% if booking.purpose == 'Workshop' %}selected{% endif %}>Workshop</option>
+        <option value="Event Support" {% if booking.purpose == 'Event Support' %}selected{% endif %}>Event Support</option>
+        <option value="Presentation" {% if booking.purpose == 'Presentation' %}selected{% endif %}>Presentation</option>
+        <option value="Tender Support" {% if booking.purpose == 'Tender Support' %}selected{% endif %}>Tender Support</option>
+        <option value="Product Comparison Slide" {% if booking.purpose == 'Product Comparison Slide' %}selected{% endif %}>Product Comparison Slide</option>
+      </select>
+
+      <input type="date" name="date_of_event" value="{{ booking.date_of_event }}" required
+             class="w-full px-4 py-2 border rounded-lg">
+
+      <input type="text" name="user" value="{{ booking.user }}" required
+             class="w-full px-4 py-2 border rounded-lg">
+
+      <input type="text" name="competitor_name" value="{{ booking.competitor_name }}"
+             class="w-full px-4 py-2 border rounded-lg">
+
+      <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg font-semibold">
+        ✅ Update Booking
+      </button>
+    </form>
+
+    <div class="mt-4 text-center">
+      <a href="{{ url_for('bookings') }}" class="text-blue-500 hover:underline">⬅ Back to Bookings</a>
+    </div>
+  </div>
+</body>
+</html>

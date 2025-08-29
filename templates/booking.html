@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Booking Form</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-100 flex items-center justify-center min-h-screen">
+    <div class="bg-white shadow-lg rounded-2xl p-8 w-full max-w-lg">
+      <h2 class="text-2xl font-bold text-gray-700 mb-6 text-center">
+        Booking Form
+      </h2>
+
+      <form method="POST" class="space-y-4">
+        <input
+          type="text"
+          name="customer_name"
+          placeholder="Customer Name"
+          required
+          class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+
+        <select
+          name="country"
+          required
+          class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+        >
+          <option value="">Select Country</option>
+          <option value="Malaysia">Malaysia</option>
+          <option value="Singapore">Singapore</option>
+        </select>
+
+        <input
+          type="text"
+          name="product_name"
+          placeholder="Product Name"
+          required
+          class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+
+        <input
+          type="text"
+          name="requested_by"
+          placeholder="Requested By"
+          required
+          class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+
+        <select
+          name="purpose"
+          required
+          class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+        >
+          <option value="">Select Purpose</option>
+          <option value="Demo">Demo</option>
+          <option value="Training">Training</option>
+          <option value="Workshop">Workshop</option>
+          <option value="Event Support">Event Support</option>
+          <option value="Presentation">Presentation</option>
+          <option value="Tender Support">Tender Support</option>
+          <option value="Product Comparison Slide">
+            Product Comparison Slide
+          </option>
+        </select>
+
+        <input
+          type="date"
+          name="date_of_event"
+          required
+          class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+
+        <select
+          name="user"
+          required
+          class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+        >
+          <option value="">Select User Type</option>
+          <option value="New User">New User</option>
+          <option value="Existing User (Refreshment)">
+            Existing User (Refreshment)
+          </option>
+        </select>
+
+        <input
+          type="text"
+          name="competitor_name"
+          placeholder="Competitor Name"
+          class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+
+        <button
+          type="submit"
+          class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg font-semibold transition"
+        >
+          Submit Booking
+        </button>
+      </form>
+
+      <div class="mt-4 text-center">
+        <a
+          href="{{ url_for('dashboard') }}"
+          class="text-blue-500 hover:underline"
+          >⬅ Back to Dashboard</a
+        >
+      </div>
+    </div>
+  </body>
+</html>
