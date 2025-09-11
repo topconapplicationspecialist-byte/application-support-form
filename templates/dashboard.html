@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Dashboard</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-100 min-h-screen p-6">
+    <div class="max-w-6xl mx-auto">
+      <!-- Welcome -->
+      <h1 class="text-3xl font-bold text-gray-800 mb-6">👋 Greetings!</h1>
+
+      <!-- Stats Cards -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="bg-white shadow-lg rounded-2xl p-6 text-center">
+          <h2 class="text-gray-500 text-sm">Total Bookings</h2>
+          <p class="text-3xl font-bold text-sky-600 mt-2">{{ total }}</p>
+        </div>
+        <div class="bg-white shadow-lg rounded-2xl p-6 text-center">
+          <h2 class="text-gray-500 text-sm">Malaysia</h2>
+          <p class="text-3xl font-bold text-emerald-600 mt-2">{{ malaysia }}</p>
+        </div>
+        <div class="bg-white shadow-lg rounded-2xl p-6 text-center">
+          <h2 class="text-gray-500 text-sm">Singapore</h2>
+          <p class="text-3xl font-bold text-purple-600 mt-2">{{ singapore }}</p>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <a
+          href="{{ url_for('booking') }}"
+          class="bg-sky-600 hover:bg-sky-700 text-white py-3 rounded-xl shadow text-center font-semibold"
+        >
+          ➕ New Booking
+        </a>
+        <a
+          href="{{ url_for('bookings') }}"
+          class="bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl shadow text-center font-semibold"
+        >
+          📋 View Bookings
+        </a>
+        <a
+          href="{{ url_for('logout') }}"
+          class="bg-red-500 hover:bg-red-600 text-white py-3 rounded-xl shadow text-center font-semibold"
+        >
+          🚪 Logout
+        </a>
+      </div>
+    </div>
+  </body>
+</html>
