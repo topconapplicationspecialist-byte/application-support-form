@@ -178,10 +178,11 @@ def send_email_async(subject, recipients, body):
     """Send email in background thread to avoid blocking requests."""
     def _send():
         try:
-            msg = Message(subject=subject, recipients=recipients, body=body)
+            # Everything inside the app context
             with app.app_context():
+                msg = Message(subject=subject, recipients=recipients, body=body)
                 mail.send(msg)
-            safe_print("✅ Email notification sent (async).")
+                safe_print("✅ Email notification sent (async).")
         except Exception as e:
             safe_print("❌ Email failed (async):", e)
 
