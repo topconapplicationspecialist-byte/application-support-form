@@ -5,23 +5,30 @@ import os
 import base64
 import requests
 from flask_mail import Mail, Message
+import threading
+import time
 
 # --------------------------------------------------------
 #  Flask App Config
 # --------------------------------------------------------
 app = Flask(__name__)
-app.secret_key = "supersecretkey"  # CHANGE this for production
+app.secret_key = os.getenv("FLASK_SECRET", "supersecretkey")  # change in production
 DATABASE = "booking.db"
 
 # --------------------------------------------------------
-#  Mail Config
+#  Mail Config (prefer environment variables)
 # --------------------------------------------------------
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'
-app.config['MAIL_PORT'] = 587
-app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = 'topcon.applicationspecialist@gmail.com'
-app.config['MAIL_PASSWORD'] = 'mbyudodbyswygtdl'  # <-- your App Password
-app.config['MAIL_DEFAULT_SENDER'] = 'topcon.applicationspecialist@gmail.com'
+# You should set MAIL_USERNAME and MAIL_PASSWORD in Render env vars.
+mail_username = os.getenv("MAIL_USERNAME", "topcon.applicationspecialist@gmail.com")
+mail_password = os.getenv("MAIL_PASSWORD", "mbyudodbyswygtdl")
+
+app.config['MAIL_SERVER'] = os.getenv("MAIL_SERVER", "smtp.gmail.com")
+app.config['MAIL_PORT'] = int(os.getenv("MAIL_PORT", 587))
+app.config['MAIL_USE_TLS'] = os.getenv("MAIL_USE_TLS", "True").lower() in ("1", "true", "yes")
+app.config['MAIL_USERNAME'] = mail_username
+app.config['MAIL_PASSWORD'] = mail_password
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv("MAIL_DEFAULT_SENDER", mail_username)
+
 mail = Mail(app)
 
 # --------------------------------------------------------
@@ -33,57 +40,95 @@ USERS = {
 }
 
 # --------------------------------------------------------
-#  GitHub Backup Config
+#  GitHub Backup Config (from env)
 # --------------------------------------------------------
+# Expecting:
+#   GITHUB_USER     = <github username or org>
+#   GITHUB_REPO     = <repo name>
+#   GITHUB_TOKEN    = <personal access token with repo:contents write>
 GITHUB_USER = os.getenv("GITHUB_USER")
 GITHUB_REPO = os.getenv("GITHUB_REPO")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-API_URL = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/booking.db"
+API_URL = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATABASE}"
 
+def safe_print(*args, **kwargs):
+    try:
+        print(*args, **kwargs, flush=True)
+    except Exception:
+        pass
+
+# --------------------------------------------------------
+#  GitHub: Download / Upload (background-safe, with timeouts)
+# --------------------------------------------------------
 def download_latest_db():
-    """Download booking.db from GitHub at startup (if available)."""
+    """Download booking.db from GitHub on startup (if available)."""
     if not (GITHUB_USER and GITHUB_REPO and GITHUB_TOKEN):
-        print("⚠️ GitHub env variables not found, skipping DB download.")
+        safe_print("⚠️ GitHub env variables not found, skipping DB download.")
         return
+
     try:
-        print("📥 Checking GitHub for latest booking.db ...")
-        headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-        r = requests.get(API_URL, headers=headers)
+        safe_print("📥 Checking GitHub for latest booking.db ...")
+        headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+        r = requests.get(API_URL, headers=headers, timeout=10)
         if r.status_code == 200:
-            db_data = base64.b64decode(r.json()["content"])
-            with open(DATABASE, "wb") as f:
-                f.write(db_data)
-            print("✅ booking.db downloaded successfully.")
+            content = r.json().get("content")
+            if content:
+                db_data = base64.b64decode(content)
+                with open(DATABASE, "wb") as f:
+                    f.write(db_data)
+                safe_print("✅ booking.db downloaded successfully from GitHub.")
+            else:
+                safe_print("⚠️ booking.db content not found in response.")
         else:
-            print(f"⚠️ No existing booking.db found (status {r.status_code}).")
+            safe_print(f"⚠️ No booking.db found on GitHub (status {r.status_code}).")
     except Exception as e:
-        print("❌ Error downloading DB:", e)
+        safe_print("❌ Error downloading DB from GitHub:", e)
 
-def upload_latest_db():
-    """Upload local booking.db to GitHub (auto-backup)."""
+def upload_latest_db_background():
+    """Start a background thread to upload the DB (non-blocking)."""
     if not (GITHUB_USER and GITHUB_REPO and GITHUB_TOKEN):
-        print("⚠️ GitHub env variables not found, skipping DB upload.")
+        safe_print("⚠️ GitHub env variables not found, skipping DB upload.")
         return
-    try:
-        print("🚀 Uploading booking.db to GitHub ...")
-        headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-        get_sha = requests.get(API_URL, headers=headers)
-        sha = get_sha.json().get("sha") if get_sha.status_code == 200 else None
 
-        with open(DATABASE, "rb") as f:
-            encoded = base64.b64encode(f.read()).decode("utf-8")
+    def _upload():
+        try:
+            safe_print("🚀 Uploading booking.db to GitHub ...")
+            headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+            # Get current sha if exists
+            get_resp = requests.get(API_URL, headers=headers, timeout=10)
+            sha = get_resp.json().get("sha") if get_resp.status_code == 200 else None
 
-        data = {"message": "Auto-backup booking.db from Render", "content": encoded}
-        if sha:
-            data["sha"] = sha
+            with open(DATABASE, "rb") as f:
+                encoded = base64.b64encode(f.read()).decode("utf-8")
 
-        r = requests.put(API_URL, headers=headers, json=data)
-        if r.status_code in (200, 201):
-            print("✅ booking.db successfully backed up to GitHub!")
-        else:
-            print("❌ Failed to upload booking.db:", r.text)
-    except Exception as e:
-        print("❌ Error uploading DB:", e)
+            data = {"message": f"Auto-backup booking.db from app ({datetime.utcnow().isoformat()})", "content": encoded}
+            if sha:
+                data["sha"] = sha
+
+            put_resp = requests.put(API_URL, headers=headers, json=data, timeout=20)
+            if put_resp.status_code in (200, 201):
+                safe_print("✅ booking.db successfully backed up to GitHub!")
+            else:
+                safe_print("❌ Failed to upload booking.db:", put_resp.status_code, put_resp.text)
+        except Exception as e:
+            safe_print("❌ Error uploading DB:", e)
+
+    thread = threading.Thread(target=_upload, daemon=True)
+    thread.start()
+
+# Provide a convenience wrapper with small debounce option if desired
+_last_upload_time = 0
+_upload_lock = threading.Lock()
+def upload_latest_db(debounce_seconds=0):
+    """Upload DB but avoid spamming GitHub: optional debounce in seconds."""
+    global _last_upload_time
+    with _upload_lock:
+        now = time.time()
+        if debounce_seconds and (now - _last_upload_time) < debounce_seconds:
+            safe_print("ℹ️ Skipping upload due to debounce.")
+            return
+        _last_upload_time = now
+    upload_latest_db_background()
 
 # --------------------------------------------------------
 #  DB Helpers
@@ -91,7 +136,8 @@ def upload_latest_db():
 def get_db():
     db = getattr(g, "_database", None)
     if db is None:
-        db = g._database = sqlite3.connect(DATABASE)
+        # Allow access from background threads (we take care to use simple transactions)
+        db = g._database = sqlite3.connect(DATABASE, check_same_thread=False)
         db.row_factory = sqlite3.Row
     return db
 
@@ -99,9 +145,13 @@ def get_db():
 def close_connection(exception):
     db = getattr(g, "_database", None)
     if db is not None:
-        db.close()
+        try:
+            db.close()
+        except Exception:
+            pass
 
 def init_db():
+    # Ensure DB file exists / create tables
     with app.app_context():
         db = get_db()
         db.execute("""
@@ -122,13 +172,29 @@ def init_db():
         db.commit()
 
 # --------------------------------------------------------
+#  Helper: async email send
+# --------------------------------------------------------
+def send_email_async(subject, recipients, body):
+    """Send email in background thread to avoid blocking requests."""
+    def _send():
+        try:
+            msg = Message(subject=subject, recipients=recipients, body=body)
+            with app.app_context():
+                mail.send(msg)
+            safe_print("✅ Email notification sent (async).")
+        except Exception as e:
+            safe_print("❌ Email failed (async):", e)
+
+    threading.Thread(target=_send, daemon=True).start()
+
+# --------------------------------------------------------
 #  Routes
 # --------------------------------------------------------
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "").strip()
+        username = (request.form.get("username") or "").strip()
+        password = (request.form.get("password") or "").strip()
 
         if username in USERS and USERS[username]["password"] == password:
             session.clear()
@@ -151,12 +217,11 @@ def dashboard():
     singapore = db.execute("SELECT COUNT(*) FROM bookings WHERE country='Singapore'").fetchone()[0]
 
     return render_template("dashboard.html",
-        user=session["user"],
-        role=session.get("role"),
-        total=total,
-        malaysia=malaysia,
-        singapore=singapore
-    )
+                           user=session["user"],
+                           role=session.get("role"),
+                           total=total,
+                           malaysia=malaysia,
+                           singapore=singapore)
 
 @app.route("/booking", methods=["GET", "POST"])
 def booking():
@@ -164,34 +229,38 @@ def booking():
         return redirect(url_for("login"))
 
     if request.method == "POST":
-        customer_name = request.form.get("customer_name", "").strip()
-        country = request.form.get("country", "").strip()
-        product_name = request.form.get("product_name", "").strip()
-        requested_by = request.form.get("requested_by", "").strip()
-        purpose = request.form.get("purpose", "").strip()
-        date_of_event = request.form.get("date_of_event", "").strip()
-        user_field = request.form.get("user", "").strip()
-        competitor_name = request.form.get("competitor_name", "").strip()
+        # Defensive get + strip
+        customer_name = (request.form.get("customer_name") or "").strip()
+        country = (request.form.get("country") or "").strip()
+        product_name = (request.form.get("product_name") or "").strip()
+        requested_by = (request.form.get("requested_by") or "").strip()
+        purpose = (request.form.get("purpose") or "").strip()
+        date_of_event = (request.form.get("date_of_event") or "").strip()
+        user_field = (request.form.get("user") or "").strip()
+        competitor_name = (request.form.get("competitor_name") or "").strip()
 
         submitted_by = requested_by
         submitted_on = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        db = get_db()
-        db.execute("""
-            INSERT INTO bookings
-            (customer_name, country, product_name, requested_by, purpose, date_of_event, user, competitor_name, submitted_by, submitted_on)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (customer_name, country, product_name, requested_by, purpose, date_of_event, user_field, competitor_name, submitted_by, submitted_on))
-        db.commit()
-
-        upload_latest_db()  # 🆕 Backup DB after adding record
-
-        # Email notification
         try:
-            msg = Message(
-                subject="📌 New Booking Submitted",
-                recipients=["ifadzilah@topcon.com"],
-                body=f"""
+            db = get_db()
+            db.execute("""
+                INSERT INTO bookings
+                (customer_name, country, product_name, requested_by, purpose, date_of_event, user, competitor_name, submitted_by, submitted_on)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (customer_name, country, product_name, requested_by, purpose, date_of_event, user_field, competitor_name, submitted_by, submitted_on))
+            db.commit()
+        except Exception as e:
+            safe_print("❌ DB insert failed:", e)
+            return "Internal Server Error", 500
+
+        # Backup DB asynchronously (debounce 1s to avoid rapid commits)
+        upload_latest_db(debounce_seconds=1)
+
+        # Email (async)
+        subject = "📌 New Booking Submitted"
+        recipients = [os.getenv("NOTIFY_EMAIL", "ifadzilah@topcon.com")]
+        body = f"""
 A new booking has been submitted:
 
 Customer: {customer_name}
@@ -204,11 +273,7 @@ Competitor: {competitor_name}
 Submitted by: {submitted_by}
 Submitted on: {submitted_on}
 """
-            )
-            mail.send(msg)
-            print("✅ Email notification sent!")
-        except Exception as e:
-            print("❌ Email failed:", e)
+        send_email_async(subject, recipients, body)
 
         return redirect(url_for("bookings"))
 
@@ -235,25 +300,28 @@ def edit_booking(booking_id):
         return "Booking not found", 404
 
     if request.method == "POST":
-        customer_name = request.form.get("customer_name", "").strip()
-        country = request.form.get("country", "").strip()
-        product_name = request.form.get("product_name", "").strip()
-        requested_by = request.form.get("requested_by", "").strip()
-        purpose = request.form.get("purpose", "").strip()
-        date_of_event = request.form.get("date_of_event", "").strip()
-        user_field = request.form.get("user", "").strip()
-        competitor_name = request.form.get("competitor_name", "").strip()
+        customer_name = (request.form.get("customer_name") or "").strip()
+        country = (request.form.get("country") or "").strip()
+        product_name = (request.form.get("product_name") or "").strip()
+        requested_by = (request.form.get("requested_by") or "").strip()
+        purpose = (request.form.get("purpose") or "").strip()
+        date_of_event = (request.form.get("date_of_event") or "").strip()
+        user_field = (request.form.get("user") or "").strip()
+        competitor_name = (request.form.get("competitor_name") or "").strip()
 
-        db.execute("""
-            UPDATE bookings
-            SET customer_name=?, country=?, product_name=?, requested_by=?, purpose=?,
-                date_of_event=?, user=?, competitor_name=?
-            WHERE id=?
-        """, (customer_name, country, product_name, requested_by, purpose, date_of_event, user_field, competitor_name, booking_id))
-        db.commit()
+        try:
+            db.execute("""
+                UPDATE bookings
+                SET customer_name=?, country=?, product_name=?, requested_by=?, purpose=?,
+                    date_of_event=?, user=?, competitor_name=?
+                WHERE id=?
+            """, (customer_name, country, product_name, requested_by, purpose, date_of_event, user_field, competitor_name, booking_id))
+            db.commit()
+        except Exception as e:
+            safe_print("❌ DB update failed:", e)
+            return "Internal Server Error", 500
 
-        upload_latest_db()  # 🆕 Backup DB after edit
-
+        upload_latest_db(debounce_seconds=1)
         return redirect(url_for("bookings"))
 
     return render_template("edit_booking.html", booking=row)
@@ -265,12 +333,15 @@ def delete_booking(booking_id):
     if session.get("role") != "admin":
         return "Unauthorized", 403
 
-    db = get_db()
-    db.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
-    db.commit()
+    try:
+        db = get_db()
+        db.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
+        db.commit()
+    except Exception as e:
+        safe_print("❌ DB delete failed:", e)
+        return "Internal Server Error", 500
 
-    upload_latest_db()  # 🆕 Backup DB after delete
-
+    upload_latest_db(debounce_seconds=1)
     return redirect(url_for("bookings"))
 
 @app.route("/logout")
@@ -288,18 +359,21 @@ def _clear_all_bookings():
     if session.get("role") != "admin":
         return "Unauthorized", 403
 
-    db = get_db()
-    db.execute("DELETE FROM bookings")
-    db.commit()
-    db.execute("DELETE FROM sqlite_sequence WHERE name='bookings'")
-    db.commit()
     try:
-        db.execute("VACUUM")
-    except Exception:
-        pass
+        db = get_db()
+        db.execute("DELETE FROM bookings")
+        db.commit()
+        db.execute("DELETE FROM sqlite_sequence WHERE name='bookings'")
+        db.commit()
+        try:
+            db.execute("VACUUM")
+        except Exception:
+            pass
+    except Exception as e:
+        safe_print("❌ Clear all failed:", e)
+        return "Internal Server Error", 500
 
-    upload_latest_db()  # 🆕 Backup DB after clear
-
+    upload_latest_db(debounce_seconds=1)
     return redirect(url_for("bookings"))
 
 @app.route("/_resequence_bookings", methods=["POST"])
@@ -316,34 +390,40 @@ def _resequence_bookings():
         ORDER BY id
     """).fetchall()
 
-    db.execute("DELETE FROM bookings")
-    db.commit()
-
-    for r in rows:
-        db.execute("""
-            INSERT INTO bookings
-            (customer_name, country, product_name, requested_by, purpose, date_of_event, user, competitor_name, submitted_by, submitted_on)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (r["customer_name"], r["country"], r["product_name"], r["requested_by"],
-              r["purpose"], r["date_of_event"], r["user"], r["competitor_name"],
-              r["submitted_by"], r["submitted_on"]))
-    db.commit()
-
-    db.execute("DELETE FROM sqlite_sequence WHERE name='bookings'")
-    db.commit()
     try:
-        db.execute("VACUUM")
-    except Exception:
-        pass
+        db.execute("DELETE FROM bookings")
+        db.commit()
+        for r in rows:
+            db.execute("""
+                INSERT INTO bookings
+                (customer_name, country, product_name, requested_by, purpose, date_of_event, user, competitor_name, submitted_by, submitted_on)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (r["customer_name"], r["country"], r["product_name"], r["requested_by"],
+                  r["purpose"], r["date_of_event"], r["user"], r["competitor_name"],
+                  r["submitted_by"], r["submitted_on"]))
+        db.commit()
+        db.execute("DELETE FROM sqlite_sequence WHERE name='bookings'")
+        db.commit()
+        try:
+            db.execute("VACUUM")
+        except Exception:
+            pass
+    except Exception as e:
+        safe_print("❌ Resequence failed:", e)
+        return "Internal Server Error", 500
 
-    upload_latest_db()  # 🆕 Backup DB after resequence
-
+    upload_latest_db(debounce_seconds=1)
     return redirect(url_for("bookings"))
 
 # --------------------------------------------------------
 #  App Entry
 # --------------------------------------------------------
 if __name__ == "__main__":
-    download_latest_db()  # 🆕 Pull latest DB when server starts
+    # Attempt to download latest DB from GitHub (if configured)
+    download_latest_db()
+    # Ensure DB and table exist
     init_db()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # Show some debug info (Render logs)
+    safe_print(f"🔧 GitHub config: user={GITHUB_USER}, repo={GITHUB_REPO}, token_set={'yes' if bool(GITHUB_TOKEN) else 'no'}")
+    safe_print(f"🔧 Mail config: username={app.config.get('MAIL_USERNAME')}, mail_env_set={'yes' if bool(mail_password) else 'no'}")
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
