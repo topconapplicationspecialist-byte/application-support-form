@@ -20,7 +20,7 @@ DATABASE = "booking.db"
 # --------------------------------------------------------
 # You should set MAIL_USERNAME and MAIL_PASSWORD in Render env vars.
 mail_username = os.getenv("MAIL_USERNAME", "topcon.applicationspecialist@gmail.com")
-mail_password = os.getenv("MAIL_PASSWORD", "mbyudodbyswygtdl")
+mail_password = os.getenv("MAIL_PASSWORD", "szfwcnwyxbljyolx")
 
 app.config['MAIL_SERVER'] = os.getenv("MAIL_SERVER", "smtp.gmail.com")
 app.config['MAIL_PORT'] = int(os.getenv("MAIL_PORT", 587))
