@@ -2,30 +2,92 @@ from flask import Flask, render_template, request, redirect, url_for, session, g
 import sqlite3
 from datetime import datetime
 import os
-from flask_mail import Mail, Message   # ✅ added
+import base64
+import requests
+from flask_mail import Mail, Message
 
+# --------------------------------------------------------
+#  Flask App Config
+# --------------------------------------------------------
 app = Flask(__name__)
-app.secret_key = "supersecretkey"   # CHANGE this for production
-
+app.secret_key = "supersecretkey"  # CHANGE this for production
 DATABASE = "booking.db"
 
-# ---------------- Mail Config ----------------
+# --------------------------------------------------------
+#  Mail Config
+# --------------------------------------------------------
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
 app.config['MAIL_USERNAME'] = 'topcon.applicationspecialist@gmail.com'
-app.config['MAIL_PASSWORD'] = 'mbyudodbyswygtdl'   # <-- your App Password
+app.config['MAIL_PASSWORD'] = 'mbyudodbyswygtdl'  # <-- your App Password
 app.config['MAIL_DEFAULT_SENDER'] = 'topcon.applicationspecialist@gmail.com'
-
 mail = Mail(app)
 
-# ---------------- Fixed Accounts with Roles ----------------
+# --------------------------------------------------------
+#  Fixed Accounts with Roles
+# --------------------------------------------------------
 USERS = {
     "TopconAdmin": {"password": "Topcon1932", "role": "admin"},
     "TopconUser": {"password": "Topcon1932", "role": "user"},
 }
 
-# ---------------- DB Helpers ----------------
+# --------------------------------------------------------
+#  GitHub Backup Config
+# --------------------------------------------------------
+GITHUB_USER = os.getenv("GITHUB_USER")
+GITHUB_REPO = os.getenv("GITHUB_REPO")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+API_URL = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{DATABASE}"
+
+def download_latest_db():
+    """Download booking.db from GitHub at startup (if available)."""
+    if not (GITHUB_USER and GITHUB_REPO and GITHUB_TOKEN):
+        print("⚠️ GitHub env variables not found, skipping DB download.")
+        return
+    try:
+        print("📥 Checking GitHub for latest booking.db ...")
+        headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+        r = requests.get(API_URL, headers=headers)
+        if r.status_code == 200:
+            db_data = base64.b64decode(r.json()["content"])
+            with open(DATABASE, "wb") as f:
+                f.write(db_data)
+            print("✅ booking.db downloaded successfully.")
+        else:
+            print(f"⚠️ No existing booking.db found (status {r.status_code}).")
+    except Exception as e:
+        print("❌ Error downloading DB:", e)
+
+def upload_latest_db():
+    """Upload local booking.db to GitHub (auto-backup)."""
+    if not (GITHUB_USER and GITHUB_REPO and GITHUB_TOKEN):
+        print("⚠️ GitHub env variables not found, skipping DB upload.")
+        return
+    try:
+        print("🚀 Uploading booking.db to GitHub ...")
+        headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+        get_sha = requests.get(API_URL, headers=headers)
+        sha = get_sha.json().get("sha") if get_sha.status_code == 200 else None
+
+        with open(DATABASE, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode("utf-8")
+
+        data = {"message": "Auto-backup booking.db from Render", "content": encoded}
+        if sha:
+            data["sha"] = sha
+
+        r = requests.put(API_URL, headers=headers, json=data)
+        if r.status_code in (200, 201):
+            print("✅ booking.db successfully backed up to GitHub!")
+        else:
+            print("❌ Failed to upload booking.db:", r.text)
+    except Exception as e:
+        print("❌ Error uploading DB:", e)
+
+# --------------------------------------------------------
+#  DB Helpers
+# --------------------------------------------------------
 def get_db():
     db = getattr(g, "_database", None)
     if db is None:
@@ -59,8 +121,9 @@ def init_db():
         """)
         db.commit()
 
-
-# ---------------- Auth / Routes ----------------
+# --------------------------------------------------------
+#  Routes
+# --------------------------------------------------------
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -77,7 +140,6 @@ def login():
 
     return render_template("login.html")
 
-
 @app.route("/dashboard")
 def dashboard():
     if "user" not in session:
@@ -88,15 +150,13 @@ def dashboard():
     malaysia = db.execute("SELECT COUNT(*) FROM bookings WHERE country='Malaysia'").fetchone()[0]
     singapore = db.execute("SELECT COUNT(*) FROM bookings WHERE country='Singapore'").fetchone()[0]
 
-    return render_template(
-        "dashboard.html",
+    return render_template("dashboard.html",
         user=session["user"],
         role=session.get("role"),
         total=total,
         malaysia=malaysia,
         singapore=singapore
     )
-
 
 @app.route("/booking", methods=["GET", "POST"])
 def booking():
@@ -113,8 +173,7 @@ def booking():
         user_field = request.form.get("user", "").strip()
         competitor_name = request.form.get("competitor_name", "").strip()
 
-        # 🔹 Use requested_by for submitted_by
-        submitted_by = requested_by  
+        submitted_by = requested_by
         submitted_on = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         db = get_db()
@@ -125,11 +184,13 @@ def booking():
         """, (customer_name, country, product_name, requested_by, purpose, date_of_event, user_field, competitor_name, submitted_by, submitted_on))
         db.commit()
 
-        # ---------------- Email Notification ----------------
+        upload_latest_db()  # 🆕 Backup DB after adding record
+
+        # Email notification
         try:
             msg = Message(
                 subject="📌 New Booking Submitted",
-                recipients=["ifadzilah@topcon.com"],   # 👈 change to actual email(s)
+                recipients=["ifadzilah@topcon.com"],
                 body=f"""
 A new booking has been submitted:
 
@@ -153,16 +214,13 @@ Submitted on: {submitted_on}
 
     return render_template("booking.html")
 
-
 @app.route("/bookings")
 def bookings():
     if "user" not in session:
         return redirect(url_for("login"))
-
     db = get_db()
     rows = db.execute("SELECT * FROM bookings ORDER BY id ASC").fetchall()
     return render_template("bookings.html", bookings=rows, role=session.get("role"))
-
 
 @app.route("/edit/<int:booking_id>", methods=["GET", "POST"])
 def edit_booking(booking_id):
@@ -193,10 +251,12 @@ def edit_booking(booking_id):
             WHERE id=?
         """, (customer_name, country, product_name, requested_by, purpose, date_of_event, user_field, competitor_name, booking_id))
         db.commit()
+
+        upload_latest_db()  # 🆕 Backup DB after edit
+
         return redirect(url_for("bookings"))
 
     return render_template("edit_booking.html", booking=row)
-
 
 @app.route("/delete/<int:booking_id>", methods=["POST"])
 def delete_booking(booking_id):
@@ -208,15 +268,19 @@ def delete_booking(booking_id):
     db = get_db()
     db.execute("DELETE FROM bookings WHERE id = ?", (booking_id,))
     db.commit()
-    return redirect(url_for("bookings"))
 
+    upload_latest_db()  # 🆕 Backup DB after delete
+
+    return redirect(url_for("bookings"))
 
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for("login"))
 
-
+# --------------------------------------------------------
+#  Maintenance Routes (Admin)
+# --------------------------------------------------------
 @app.route("/_clear_all_bookings", methods=["POST"])
 def _clear_all_bookings():
     if "user" not in session:
@@ -227,17 +291,16 @@ def _clear_all_bookings():
     db = get_db()
     db.execute("DELETE FROM bookings")
     db.commit()
-
     db.execute("DELETE FROM sqlite_sequence WHERE name='bookings'")
     db.commit()
-
     try:
         db.execute("VACUUM")
     except Exception:
         pass
 
-    return redirect(url_for("bookings"))
+    upload_latest_db()  # 🆕 Backup DB after clear
 
+    return redirect(url_for("bookings"))
 
 @app.route("/_resequence_bookings", methods=["POST"])
 def _resequence_bookings():
@@ -268,18 +331,19 @@ def _resequence_bookings():
 
     db.execute("DELETE FROM sqlite_sequence WHERE name='bookings'")
     db.commit()
-
     try:
         db.execute("VACUUM")
     except Exception:
         pass
 
+    upload_latest_db()  # 🆕 Backup DB after resequence
+
     return redirect(url_for("bookings"))
 
-
+# --------------------------------------------------------
+#  App Entry
+# --------------------------------------------------------
 if __name__ == "__main__":
-    if not os.path.exists(DATABASE):
-        init_db()
-    else:
-        init_db()
+    download_latest_db()  # 🆕 Pull latest DB when server starts
+    init_db()
     app.run(host="0.0.0.0", port=5000, debug=True)
